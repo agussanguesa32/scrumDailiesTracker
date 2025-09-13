@@ -1,0 +1,30 @@
+# Carpeta de entorno virtual local
+venv/
+
+# Archivos de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+
+# Git
+.git/
+.gitignore
+
+# Archivos de editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# Archivos sensibles que no deben copiarse al build
+.env
+.env.*
+
+# Docker
+Dockerfile*
+.dockerignore
+
+# Datos que montaremos como volumen en runtime
+# (no copiar al build para no romper la cache)
+data/

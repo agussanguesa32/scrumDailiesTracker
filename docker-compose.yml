@@ -1,20 +1,19 @@
-version: '3.8'
+version: "3.8"
 
 services:
   dailies-bot:
-    image: python:3.11-slim
+    build: .
     container_name: dailies-bot
     restart: unless-stopped
-    working_dir: /app
-    env_file:
-      - .env
     volumes:
-      - .:/app:ro
       - ./data:/app/data
-    command: >
-      bash -c "
-        pip install --no-cache-dir discord.py aiofiles python-dotenv pytz &&
-        python main.py
-      "
     environment:
       - PYTHONUNBUFFERED=1
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - GUILD_ID=${GUILD_ID:-}
+      - DAILIES_CHANNEL_ID=${DAILIES_CHANNEL_ID:-}
+      - PRODUCT_TEAM_ROLES=${PRODUCT_TEAM_ROLES:-}
+      - ADMIN_ROLE_ID=${ADMIN_ROLE_ID:-}
+      - TIMEZONE=${TIMEZONE:-America/Buenos_Aires}
+      - DAILY_HOUR=${DAILY_HOUR:-10}
+      - DAILY_MINUTE=${DAILY_MINUTE:-0}
