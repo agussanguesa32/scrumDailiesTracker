@@ -2,12 +2,15 @@ version: '3.8'
 
 services:
   dailies-bot:
-    build: .
+    image: python:3.11-slim
     container_name: dailies-bot
     restart: unless-stopped
+    working_dir: /app
     env_file:
       - .env
     volumes:
+      - .:/app
       - ./data:/app/data
+    command: sh -c "pip install -r requirements.txt && python main.py"
     environment:
       - PYTHONUNBUFFERED=1
