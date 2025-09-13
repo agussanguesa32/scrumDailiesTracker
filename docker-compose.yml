@@ -9,7 +9,12 @@ services:
     env_file:
       - .env
     volumes:
-      - .:/app
-    command: sh -c "cd /app && pip install -r requirements.txt && python main.py"
+      - .:/app:ro
+      - ./data:/app/data
+    command: >
+      bash -c "
+        pip install --no-cache-dir discord.py aiofiles python-dotenv pytz &&
+        python main.py
+      "
     environment:
       - PYTHONUNBUFFERED=1
