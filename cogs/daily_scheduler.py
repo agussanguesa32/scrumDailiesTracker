@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, time
 import pytz
 import asyncio
-from utils.config import config, schedule_manager, dailies_storage
+from utils.config import config, schedule_manager, dailies_storage, messages_storage
 
 logger = logging.getLogger('DailiesBot.Scheduler')
 
@@ -85,7 +85,20 @@ async def send_daily_reminders(bot, guild):
 
                 view = DailyReminderView()
 
-                await member.send(embed=embed, view=view)
+                msg = await member.send(embed=embed, view=view)
+
+                # Guardar referencia al mensaje para poder deshabilitar luego
+                try:
+                    date_str = now.strftime('%Y-%m-%d')
+                    await messages_storage.save_message(
+                        user_id=member.id,
+                        guild_id=guild.id,
+                        channel_id=msg.channel.id,
+                        message_id=msg.id,
+                        date_str=date_str
+                    )
+                except Exception as e:
+                    logger.error(f"Error saving message reference for {member.name}: {e}")
                 sent_count += 1
                 logger.info(f"Sent daily reminder to {member.name}")
                 
@@ -255,6 +268,37 @@ class DailyModal(discord.ui.Modal, title="Daily"):
                 color=discord.Color.green()
             )
             await interaction.followup.send(embed=success_embed, ephemeral=True)
+            
+            # Intentar deshabilitar el botón en el DM original del usuario
+            try:
+                tz = pytz.timezone(config.TIMEZONE)
+                today_str = datetime.now(tz).strftime('%Y-%m-%d')
+                data_today = await messages_storage.list_for_date(today_str)
+                user_entry = data_today.get(str(self.guild_id), {}).get(str(interaction.user.id))
+                if user_entry:
+                    channel_id = int(user_entry.get('channel_id'))
+                    message_id = int(user_entry.get('message_id'))
+                    # Obtener canal y mensaje
+                    dm_channel = interaction.client.get_channel(channel_id)
+                    if dm_channel is None:
+                        try:
+                            dm_channel = await interaction.client.fetch_channel(channel_id)
+                        except Exception:
+                            dm_channel = None
+                    if dm_channel is not None:
+                        try:
+                            msg = await dm_channel.fetch_message(message_id)
+                            # Construir una view con el botón deshabilitado
+                            disabled_view = DailyReminderView()
+                            for item in disabled_view.children:
+                                if isinstance(item, discord.ui.Button) and item.custom_id == "daily_complete_btn":
+                                    item.disabled = True
+                            await msg.edit(view=disabled_view)
+                            await messages_storage.mark_disabled(interaction.user.id, self.guild_id, today_str)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             
         except Exception as e:
             logger.error(f"Error sending daily to channel: {e}")
@@ -472,6 +516,39 @@ class DailyScheduler(commands.Cog):
 
                 for guild in self.bot.guilds:
                     await self.send_end_of_day_summary(guild)
+
+                # Deshabilitar botones activos del día y limpiar referencias
+                try:
+                    tz = pytz.timezone(config.TIMEZONE)
+                    today_str = datetime.now(tz).strftime('%Y-%m-%d')
+                    all_today = await messages_storage.list_for_date(today_str)
+                    for guild_id_str, users in all_today.items():
+                        for user_id_str, entry in users.items():
+                            channel_id = int(entry.get('channel_id', 0))
+                            message_id = int(entry.get('message_id', 0))
+                            if not channel_id or not message_id:
+                                continue
+                            try:
+                                ch = self.bot.get_channel(channel_id)
+                                if ch is None:
+                                    ch = await self.bot.fetch_channel(channel_id)
+                                if ch is not None:
+                                    try:
+                                        msg = await ch.fetch_message(message_id)
+                                        view = DailyReminderView()
+                                        for item in view.children:
+                                            if isinstance(item, discord.ui.Button) and item.custom_id == "daily_complete_btn":
+                                                item.disabled = True
+                                        await msg.edit(view=view)
+                                        await messages_storage.mark_disabled(int(user_id_str), int(guild_id_str), today_str)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                    # Opcional: limpiar por fecha para no acumular
+                    await messages_storage.delete_date(today_str)
+                except Exception as e:
+                    logger.error(f"Error disabling end-of-day buttons: {e}")
 
                 # Limpiar el archivo de dailies al final del día
                 cleared = await dailies_storage.clear_all_dailies()

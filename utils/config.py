@@ -21,6 +21,7 @@ class Config:
         self.DATA_DIR = 'data'
         self.SCHEDULE_FILE = os.path.join(self.DATA_DIR, 'schedule.json')
         self.DAILIES_FILE = os.path.join(self.DATA_DIR, 'dailies.json')
+        self.MESSAGES_FILE = os.path.join(self.DATA_DIR, 'messages.json')
         
         self._ensure_data_dir()
     
@@ -215,6 +216,76 @@ class DailiesStorage:
                 print(f"Error clearing dailies: {e}")
                 return False
 
+class DailyMessagesStorage:
+    def __init__(self, config: Config):
+        self.config = config
+        self.messages_file = config.MESSAGES_FILE
+        self._lock = asyncio.Lock()
+
+    async def _read_all(self):
+        try:
+            async with aiofiles.open(self.messages_file, 'r') as f:
+                content = await f.read()
+                if not content.strip():
+                    return {}
+                return json.loads(content)
+        except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError:
+            return {}
+        except Exception as e:
+            print(f"Error reading messages store: {e}")
+            return {}
+
+    async def _write_all(self, data: dict) -> bool:
+        try:
+            async with aiofiles.open(self.messages_file, 'w') as f:
+                await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+            return True
+        except Exception as e:
+            print(f"Error writing messages store: {e}")
+            return False
+
+    async def save_message(self, user_id: int, guild_id: int, channel_id: int, message_id: int, date_str: str) -> bool:
+        async with self._lock:
+            data = await self._read_all()
+            if date_str not in data:
+                data[date_str] = {}
+            if str(guild_id) not in data[date_str]:
+                data[date_str][str(guild_id)] = {}
+            data[date_str][str(guild_id)][str(user_id)] = {
+                'channel_id': int(channel_id),
+                'message_id': int(message_id),
+                'disabled': bool(data[date_str][str(guild_id)].get(str(user_id), {}).get('disabled', False))
+            }
+            return await self._write_all(data)
+
+    async def list_all(self) -> dict:
+        return await self._read_all()
+
+    async def list_for_date(self, date_str: str) -> dict:
+        data = await self._read_all()
+        return data.get(date_str, {})
+
+    async def mark_disabled(self, user_id: int, guild_id: int, date_str: str) -> bool:
+        async with self._lock:
+            data = await self._read_all()
+            try:
+                if date_str in data and str(guild_id) in data[date_str] and str(user_id) in data[date_str][str(guild_id)]:
+                    data[date_str][str(guild_id)][str(user_id)]['disabled'] = True
+                    return await self._write_all(data)
+            except Exception:
+                pass
+            return False
+
+    async def delete_date(self, date_str: str) -> bool:
+        async with self._lock:
+            data = await self._read_all()
+            if date_str in data:
+                del data[date_str]
+                return await self._write_all(data)
+            return True
+
 def sort_days(days: list) -> list:
     """Ordena los días de la semana en orden cronológico"""
     day_order = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
@@ -238,3 +309,4 @@ def format_days_spanish(days: list) -> str:
 config = Config()
 schedule_manager = ScheduleManager(config)
 dailies_storage = DailiesStorage(config)
+messages_storage = DailyMessagesStorage(config)

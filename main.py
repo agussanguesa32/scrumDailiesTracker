@@ -4,6 +4,9 @@ import os
 from dotenv import load_dotenv
 import logging
 import asyncio
+from datetime import datetime
+import pytz
+from utils.config import config, dailies_storage, messages_storage
 
 load_dotenv()
 
@@ -50,6 +53,70 @@ class DailiesBot(commands.Bot):
             view = DailyReminderView()
             self.add_view(view)
             logger.info("Registered persistent view")
+
+            # Deshabilitar botones según regla al iniciar: pasado o ya completado
+            try:
+                tz = pytz.timezone(config.TIMEZONE)
+                today_str = datetime.now(tz).strftime('%Y-%m-%d')
+                all_data = await messages_storage.list_all()
+
+                # Procesar fechas anteriores: deshabilitar todo
+                for date_str, guilds_map in all_data.items():
+                    is_past = date_str < today_str
+                    for guild_id_str, users_map in guilds_map.items():
+                        for user_id_str, entry in users_map.items():
+                            should_disable = is_past
+                            if not should_disable and date_str == today_str:
+                                try:
+                                    if config.GUILD_ID and int(guild_id_str) != int(config.GUILD_ID):
+                                        pass
+                                    else:
+                                        already = await dailies_storage.has_submitted_today(int(user_id_str), int(guild_id_str))
+                                        should_disable = already
+                                except Exception:
+                                    should_disable = False
+                            if not should_disable:
+                                continue
+
+                            channel_id = int(entry.get('channel_id', 0))
+                            message_id = int(entry.get('message_id', 0))
+                            if not channel_id or not message_id:
+                                continue
+
+                            # Intentar obtener el canal por ID; fallback: abrir DM con el usuario
+                            dm_channel = self.get_channel(channel_id)
+                            if dm_channel is None:
+                                try:
+                                    dm_channel = await self.fetch_channel(channel_id)
+                                except Exception:
+                                    dm_channel = None
+                            if dm_channel is None:
+                                try:
+                                    user = self.get_user(int(user_id_str)) or await self.fetch_user(int(user_id_str))
+                                    dm_channel = user.dm_channel or await user.create_dm()
+                                except Exception:
+                                    dm_channel = None
+                            if dm_channel is None:
+                                continue
+
+                            try:
+                                msg = await dm_channel.fetch_message(message_id)
+                            except Exception:
+                                continue
+
+                            try:
+                                disabled_view = DailyReminderView()
+                                for item in disabled_view.children:
+                                    if isinstance(item, discord.ui.Button) and item.custom_id == "daily_complete_btn":
+                                        item.disabled = True
+                                await msg.edit(view=disabled_view)
+                                await messages_storage.mark_disabled(int(user_id_str), int(guild_id_str), date_str)
+                            except Exception:
+                                pass
+
+                logger.info("Persistent views checked and outdated/used buttons disabled where applicable")
+            except Exception as e:
+                logger.error(f"Error disabling persistent buttons on startup: {e}")
         except Exception as e:
             logger.error(f"Error registering persistent view: {e}")
 
