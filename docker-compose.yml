@@ -10,7 +10,6 @@ services:
       - .env
     volumes:
       - .:/app
-      - ./data:/app/data
-    command: sh -c "pip install -r requirements.txt && python main.py"
+    command: sh -c "cd /app && pip install -r requirements.txt && python main.py"
     environment:
       - PYTHONUNBUFFERED=1
