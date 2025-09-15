@@ -223,7 +223,7 @@ class DailyModal(discord.ui.Modal, title="Daily"):
         )
         
         embed.set_author(
-            name=str(member),
+            name=member.display_name,
             icon_url=member.display_avatar.url if member.display_avatar else None
         )
         
